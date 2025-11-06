@@ -22,7 +22,7 @@ conda create -n new_env python=3.11 -y
 conda activate new_env
 
 # 2. 先装运行时依赖（torch 必须与你编译时 CUDA 版本对应）
-pip install torch==2.3.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
 # 如有需要再装 einops
 pip install einops
 
