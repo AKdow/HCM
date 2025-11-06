@@ -82,7 +82,14 @@ def pack_and_save(out_dir, split, pairs, vocab_size):
 
     np.save(os.path.join(out_dir, split, "all__inputs.npy"), np.array(inputs))
     np.save(os.path.join(out_dir, split, "all__labels.npy"), np.array(labels))
-    np.save(os.path.join(out_dir, split, "all__puzzle_indices.npy"), np.array([0,len(pairs)]))
+    # np.save(os.path.join(out_dir, split, "all__puzzle_indices.npy"), np.array([0,len(pairs)]))
+    # 修改为：将数据人为分成 N 段，例如每100个样本算一个 puzzle
+    step = 100
+    puzzle_indices = list(range(0, len(pairs)+1, step))
+    if puzzle_indices[-1] != len(pairs):
+        puzzle_indices.append(len(pairs))
+    np.save(os.path.join(out_dir, split, "all__puzzle_indices.npy"), np.array(puzzle_indices))
+    
     np.save(os.path.join(out_dir, split, "all__group_indices.npy"), np.array([0,len(pairs)]))
     np.save(os.path.join(out_dir, split, "all__puzzle_identifiers.npy"), np.zeros(len(pairs),dtype=np.int32))
     
