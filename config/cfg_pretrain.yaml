@@ -1,4 +1,36 @@
-# ARC training config
+# # ARC training config
+
+# defaults:
+#   - arch: hrm_v1
+#   - _self_
+
+# hydra:
+#   output_subdir: null
+
+# # Data path
+# data_path: data/arc-aug-1000
+
+# # Hyperparams - Training
+# global_batch_size: 768
+
+# epochs: 100000
+# eval_interval: 10000
+# checkpoint_every_eval: True
+
+# lr: 1e-4
+# lr_min_ratio: 1.0
+# lr_warmup_steps: 2000
+
+# # Standard hyperparameter settings for LM, as used in Llama
+# beta1: 0.9
+# beta2: 0.95
+# weight_decay: 0.1
+# puzzle_emb_weight_decay: 0.1
+
+# # Hyperparams - Puzzle embeddings training
+# puzzle_emb_lr: 1e-2
+
+# MATH-401 Pretraining Config (for Arithmetic)
 
 defaults:
   - arch: hrm_v1
@@ -7,25 +39,33 @@ defaults:
 hydra:
   output_subdir: null
 
-# Data path
-data_path: data/arc-aug-1000
+# === Data Path ===
+data_path: data/MATH-401/exp5
 
-# Hyperparams - Training
-global_batch_size: 768
+# === Training Hyperparameters ===
+global_batch_size: 256  # 全局批量大小
+epochs: 2000 # 训练轮数
+eval_interval: 100 # 评估间隔
+checkpoint_every_eval: True # 每次评估后保存检查点
 
-epochs: 100000
-eval_interval: 10000
-checkpoint_every_eval: True
+lr: 10e-5 # 学习率
+lr_min_ratio: 1.0 # 最小学习率比例 最小学习率 = lr × lr_min_ratio（=1 表示无下降，即 constant LR）
+lr_warmup_steps: 0 # 学习率预热步数 线性预热步数（前多少 step 线性上升）
 
-lr: 1e-4
-lr_min_ratio: 1.0
-lr_warmup_steps: 2000
+beta1: 0.9 # Adam 优化器的 beta1 参数
+beta2: 0.95 # Adam 优化器的 beta2 参数
+weight_decay: 0.1 # 权重衰减系数
 
-# Standard hyperparameter settings for LM, as used in Llama
-beta1: 0.9
-beta2: 0.95
-weight_decay: 0.1
-puzzle_emb_weight_decay: 0.1
+# === Disable Puzzle Embedding Optimizer ===
+puzzle_emb_lr: 0.0 # 拼图嵌入学习率，加法任务中是无意义的，因为所有样本属于同一类任务，不需要单独的拼图嵌入
+puzzle_emb_weight_decay: 0.0 # 拼图嵌入权重衰减系数
 
-# Hyperparams - Puzzle embeddings training
-puzzle_emb_lr: 1e-2
+# === Disable Reasoning Heads ===
+use_halt_head: false # 不使用停止头
+use_q_head: false  # 不使用问题头
+use_puzzle_emb: false  # 不使用拼图嵌入
+
+# === Flatten Reasoning Structure ===
+halt_exploration_prob: 0.0 # 停止探索概率，设为 0 表示不进行探索
+halt_max_steps: 1 # 最大停止步骤数，设为 1 表示只进行一次推理步骤
+

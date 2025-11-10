@@ -1,21 +1,48 @@
+# name: hrm.hrm_act_v1@HierarchicalReasoningModel_ACTV1
+# loss:
+#   name: losses@ACTLossHead
+#   loss_type: stablemax_cross_entropy
+
+# halt_exploration_prob: 0.1
+# halt_max_steps: 16
+
+# H_cycles: 1
+# L_cycles: 1
+
+# H_layers: 4
+# L_layers: 4
+
+# hidden_size: 512
+# num_heads: 8  # min(2, hidden_size // 64)
+# expansion: 4
+
+# puzzle_emb_ndim: ${.hidden_size}
+
+# pos_encodings: rope
+
 name: hrm.hrm_act_v1@HierarchicalReasoningModel_ACTV1
+
 loss:
   name: losses@ACTLossHead
   loss_type: stablemax_cross_entropy
 
-halt_exploration_prob: 0.1
-halt_max_steps: 16
+# === Reasoning Control（精简）===
+halt_exploration_prob: 0.0
+halt_max_steps: 1
+H_cycles: 1
+L_cycles: 1
 
-H_cycles: 2
-L_cycles: 2
-
+# === Layer Config ===
 H_layers: 4
 L_layers: 4
 
-hidden_size: 512
-num_heads: 8  # min(2, hidden_size // 64)
-expansion: 4
+# === Architecture ===
+hidden_size: 512 # 隐藏层维度。
+num_heads: 8  # 注意力头数量。
+expansion: 4 # FFN 中维度膨胀比例（用于 MLP block）
 
-puzzle_emb_ndim: ${.hidden_size}
+# === Puzzle Embedding ===
+puzzle_emb_ndim: ${.hidden_size} # 拼图嵌入维度与隐藏层维度相同
 
+# === Positional Encoding ===
 pos_encodings: rope

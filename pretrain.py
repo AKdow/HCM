@@ -124,6 +124,11 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     with torch.device("cuda"):
         model: nn.Module = model_cls(model_cfg)
         model = loss_head_cls(model, **config.arch.loss.__pydantic_extra__)  # type: ignore
+
+        # embedding对齐
+        model.resize_token_embeddings(model_cfg["vocab_size"]) # type: ignore
+        print(f"[Debug] Resized token embeddings to {model_cfg['vocab_size']}") # type: ignore
+
         if "DISABLE_COMPILE" not in os.environ:
             model = torch.compile(model, dynamic=False)  # type: ignore
 
@@ -136,14 +141,14 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     print("DEBUG AdamAtan2 LR:", config.lr, config.puzzle_emb_lr)
     # Optimizers and lr
     optimizers = [
-        CastedSparseEmbeddingSignSGD_Distributed(
-            model.model.puzzle_emb.buffers(),  # type: ignore
+        # CastedSparseEmbeddingSignSGD_Distributed(
+        #     model.model.puzzle_emb.buffers(),  # type: ignore
             
-            lr=1e-8,  # Needs to be set by scheduler  ############
-            weight_decay=config.puzzle_emb_weight_decay,
+        #     lr=1e-8,  # Needs to be set by scheduler  ############
+        #     weight_decay=config.puzzle_emb_weight_decay,
 
-            world_size=world_size
-        ),
+        #     world_size=world_size
+        # ),
         
         AdamAtan2(
             model.parameters(),
