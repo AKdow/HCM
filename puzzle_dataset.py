@@ -7,7 +7,7 @@ import pydantic
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
-from models.losses import IGNORE_LABEL_ID
+from models import IGNORE_LABEL_ID
 from dataset.common import PuzzleDatasetMetadata
 
 
@@ -73,10 +73,14 @@ class PuzzleDataset(IterableDataset):
         if self._data is not None:
             return
 
+        # For regression dataset we want:
+        # - inputs: memory-map OK (int ids)
+        # - labels: load as numpy float32 (no mmap) shape (N,1) or (N,)
+        # - indices: in-memory
         field_mmap_modes = {
             "inputs": "r",
-            "labels": "r",
-
+            # labels: regression -> load fully as float32 (no mmap)
+            "labels": None,
             # Keep indices in memory
             "puzzle_identifiers": None,
             "puzzle_indices": None,
@@ -86,34 +90,57 @@ class PuzzleDataset(IterableDataset):
         # Load data
         self._data = {}
         for set_name in self.metadata.sets:
-            # Load subset
-            self._data[set_name] = {
-                field_name: np.load(os.path.join(self.config.dataset_path, self.split, f"{set_name}__{field_name}.npy"), mmap_mode=mmap_mode)
-                for field_name, mmap_mode in field_mmap_modes.items()
-            }
+            subset = {}
+            for field_name, mmap_mode in field_mmap_modes.items():
+                path = os.path.join(self.config.dataset_path, self.split, f"{set_name}__{field_name}.npy")
+                arr = np.load(path, mmap_mode=mmap_mode)
+                # If labels, ensure float32 and shape (N,1)
+                if field_name == "labels":
+                    arr = arr.astype(np.float32, copy=False)
+                    if arr.ndim == 1:
+                        arr = arr.reshape(-1, 1)
+                subset[field_name] = arr
+            self._data[set_name] = subset
 
     def _collate_batch(self, batch):
-        # Convert dtype
-        batch = {k: v.astype(np.int32) for k, v in batch.items()}
+        """
+        Expect batch keys: inputs(int), labels(float), puzzle_identifiers(int)
+        """
 
-        # Convert ignore label IDs
-        if self.metadata.ignore_label_id is not None:
-            batch["labels"][batch["labels"] == self.metadata.ignore_label_id] = IGNORE_LABEL_ID
+        # ---- Inputs 和 puzzle_identifiers 强制 int32 ----
+        inputs = batch["inputs"].astype(np.int32)
+        puzzle_identifiers = batch["puzzle_identifiers"].astype(np.int32)
 
-        # Pad
-        if batch["puzzle_identifiers"].size < self.local_batch_size:
-            pad_size = self.local_batch_size - batch["puzzle_identifiers"].size
+        # ---- Labels: 保证 float32，不做 int32 cast ----
+        labels_np = batch["labels"]
 
-            pad_values = {
-                "inputs": self.metadata.pad_id,
-                "labels": IGNORE_LABEL_ID,
+        # 如果是 (N,1) → squeeze 到 (N,)
+        if labels_np.ndim == 2 and labels_np.shape[1] == 1:
+            labels_np = labels_np.reshape(-1)
 
-                "puzzle_identifiers": self.metadata.blank_identifier_id
-            }
-            batch = {k: np.pad(v, ((0, pad_size), ) + ((0, 0), ) * (v.ndim - 1), constant_values=pad_values[k]) for k, v in batch.items()}
+        # labels 保持 float32
+        labels = labels_np.astype(np.float32)
 
-        # To tensor
-        return {k: torch.from_numpy(v) for k, v in batch.items()}
+        # ---- Pad to local_batch_size ----
+        current = labels.shape[0]
+        if current < self.local_batch_size:
+            pad_size = self.local_batch_size - current
+
+            inputs = np.pad(inputs, ((0, pad_size), (0, 0)), constant_values=self.metadata.pad_id)
+            labels = np.pad(labels, (0, pad_size), constant_values=0.0)
+            puzzle_identifiers = np.pad(
+                puzzle_identifiers,
+                (0, pad_size),
+                constant_values=self.metadata.blank_identifier_id
+            )
+
+        # ---- Convert to tensors ----
+        return {
+            "inputs": torch.from_numpy(inputs),
+            "labels": torch.from_numpy(labels),  # float32 tensor
+            "puzzle_identifiers": torch.from_numpy(puzzle_identifiers),
+        }
+
     
     def _iter_test(self):
         for set_name, dataset in self._data.items():  # type: ignore

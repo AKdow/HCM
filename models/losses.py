@@ -99,3 +99,66 @@ class ACTLossHead(nn.Module):
         detached_outputs = {k: outputs[k].detach() for k in return_keys if k in outputs}
 
         return new_carry, lm_loss + 0.5 * (q_halt_loss + q_continue_loss), metrics, detached_outputs, new_carry.halted.all()
+
+
+# class RegressionLossHead(nn.Module):
+#     """
+#     Loss head for regression tasks in HRM.
+#     Expects model.forward(carry, batch) -> (new_carry, outputs_dict)
+#     and outputs_dict must contain "prediction": Tensor [B] (float)
+#     Batch must contain "targets": Tensor [B] (float32) OR new_carry.current_data["labels"].
+#     """
+
+#     def __init__(self, model: nn.Module):
+#         super().__init__()
+#         self.model = model
+#         # No internal loss weight here; user can weight externally if needed.
+
+#     def initial_carry(self, *args, **kwargs):
+#         return self.model.initial_carry(*args, **kwargs)
+
+#     def forward(
+#         self,
+#         return_keys: Sequence[str],
+#         # We expect model_kwargs to include 'carry' and 'batch'
+#         **model_kwargs,
+#     ) -> Tuple[Any, torch.Tensor, Dict[str, torch.Tensor], Optional[Dict[str, torch.Tensor]], torch.Tensor]:
+#         # Run the model: expects (carry, batch) passed in model_kwargs
+#         new_carry, outputs = self.model(**model_kwargs)
+
+#         # Fetch predictions and targets
+#         if "prediction" not in outputs:
+#             raise KeyError("RegressionLossHead expects outputs['prediction'] from the model.")
+
+#         preds = outputs["prediction"]  # [B], float32 or float16
+#         # Try to find targets in new_carry.current_data (compat)
+#         if "targets" in new_carry.current_data:
+#             targets = new_carry.current_data["targets"]
+#         elif "labels" in new_carry.current_data:
+#             targets = new_carry.current_data["labels"]
+#         else:
+#             raise KeyError("No targets found in new_carry.current_data; expected key 'targets' (float).")
+
+#         # Ensure float dtype for loss
+#         preds = preds.to(torch.float32)
+#         targets = targets.to(torch.float32)
+
+#         # Compute MSE loss (mean across batch)
+#         loss = F.mse_loss(preds, targets, reduction="mean")
+
+#         # Metrics: also report MAE
+#         mae = torch.mean(torch.abs(preds - targets)).detach()
+
+#         metrics = {
+#             "mse": loss.detach(),
+#             "mae": mae,
+#             "count": torch.tensor(preds.shape[0], dtype=torch.long),
+#         }
+
+#         # Detached outputs for logging/validation (keep requested keys)
+#         detached_outputs = {k: outputs[k].detach() for k in return_keys if k in outputs}
+
+#         # Return same tuple shape as ACTLossHead: (new_carry, loss, metrics, detached_outputs, stopped_flag)
+#         # stopped_flag: whether all sequences halted (we follow ACTLossHead style)
+#         stopped_flag = new_carry.halted.all() if hasattr(new_carry, "halted") else torch.tensor(True)
+#         return new_carry, loss, metrics, detached_outputs, stopped_flag

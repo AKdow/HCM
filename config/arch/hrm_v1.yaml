@@ -1,48 +1,54 @@
+name: hrm.hrm_act_v1@HierarchicalReasoningModel_ACTV1
+
+loss:
+  name: heads@RegressionLossHead       
+  # losses:                            
+  #   - name: MSELossHead                # 新增：给回归头 prediction 用
+      # key: prediction                  # 使用模型输出中的 prediction 字段
+      # target_key: targets              # batch 中真实连续值的 key，比如 batch['targets']
+      # reduction: mean                  # 默认即可
+
+halt_exploration_prob: 0.1
+halt_max_steps: 1
+
+H_cycles: 1
+L_cycles: 1
+
+H_layers: 4
+L_layers: 4
+
+hidden_size: 512
+num_heads: 8
+expansion: 4
+
+puzzle_emb_ndim: ${.hidden_size}
+
+pos_encodings: rope
+
+# #####
 # name: hrm.hrm_act_v1@HierarchicalReasoningModel_ACTV1
+
 # loss:
 #   name: losses@ACTLossHead
 #   loss_type: stablemax_cross_entropy
 
-# halt_exploration_prob: 0.1
-# halt_max_steps: 16
-
+# # === Reasoning Control（精简）===
+# halt_exploration_prob: 0.0  
+# halt_max_steps: 1
 # H_cycles: 1
 # L_cycles: 1
 
+# # === Layer Config ===
 # H_layers: 4
 # L_layers: 4
 
-# hidden_size: 512
-# num_heads: 8  # min(2, hidden_size // 64)
-# expansion: 4
+# # === Architecture ===
+# hidden_size: 512 # 隐藏层维度。
+# num_heads: 8  # 注意力头数量。
+# expansion: 4 # FFN 中维度膨胀比例（用于 MLP block）
 
-# puzzle_emb_ndim: ${.hidden_size}
+# # === Puzzle Embedding ===
+# puzzle_emb_ndim: ${.hidden_size} # 拼图嵌入维度与隐藏层维度相同
 
+# # === Positional Encoding ===
 # pos_encodings: rope
-
-name: hrm.hrm_act_v1@HierarchicalReasoningModel_ACTV1
-
-loss:
-  name: losses@ACTLossHead
-  loss_type: stablemax_cross_entropy
-
-# === Reasoning Control（精简）===
-halt_exploration_prob: 0.0
-halt_max_steps: 1
-H_cycles: 1
-L_cycles: 1
-
-# === Layer Config ===
-H_layers: 4
-L_layers: 4
-
-# === Architecture ===
-hidden_size: 512 # 隐藏层维度。
-num_heads: 8  # 注意力头数量。
-expansion: 4 # FFN 中维度膨胀比例（用于 MLP block）
-
-# === Puzzle Embedding ===
-puzzle_emb_ndim: ${.hidden_size} # 拼图嵌入维度与隐藏层维度相同
-
-# === Positional Encoding ===
-pos_encodings: rope

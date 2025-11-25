@@ -1,3 +1,4 @@
+# hrm_act_v1.py  （替换你的文件内容）
 from typing import Tuple, List, Dict, Optional
 from dataclasses import dataclass
 import math
@@ -91,10 +92,6 @@ class HierarchicalReasoningModel_ACTV1ReasoningModule(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor, input_injection: torch.Tensor, **kwargs) -> torch.Tensor:
         # Input injection (add)
-        # hidden_state是当前模块要处理的输入状态
-        # 比如传进 L_module 的 z_L，或者传进 H_module 的 z_H
-        # input_injection是每个没循环模块里都注入外部信息
-        # L_module收到的是z_H+input_embeddings，H_module收到的是z_L
         hidden_states = hidden_states + input_injection  # 只在module开始时注入一次
         # Layers
         for layer in self.layers:
@@ -181,7 +178,14 @@ class HierarchicalReasoningModel_ACTV1_Inner(nn.Module):
             z_L=torch.where(reset_flag.view(-1, 1, 1), self.L_init, carry.z_L),
         )
 
-    def forward(self, carry: HierarchicalReasoningModel_ACTV1InnerCarry, batch: Dict[str, torch.Tensor]) -> Tuple[HierarchicalReasoningModel_ACTV1InnerCarry, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    def forward(self, carry: HierarchicalReasoningModel_ACTV1InnerCarry, batch: Dict[str, torch.Tensor]) -> Tuple[HierarchicalReasoningModel_ACTV1InnerCarry, torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+        """
+        Returns:
+            new_carry,
+            logits: [B, seq_len, vocab],
+            (q_halt_logits, q_continue_logits): each [B],
+            last_hidden: [B, hidden_size]   # 用于回归头
+        """
         seq_info = dict(
             cos_sin=self.rotary_emb() if hasattr(self, "rotary_emb") else None,
         )
@@ -196,8 +200,8 @@ class HierarchicalReasoningModel_ACTV1_Inner(nn.Module):
 
             for _H_step in range(self.config.H_cycles): 
                 for _L_step in range(self.config.L_cycles):
-                     # 如果当前循环不是 最后一次 H_step 且最后一次 L_step 同时发生的情况
-                     # 在最后一个H和L循环的时候，模型准备输出结果，不需要再计算z_L
+                    # 如果当前循环不是 最后一次 H_step 且最后一次 L_step 同时发生的情况
+                    # 在最后一个H和L循环的时候，模型准备输出结果，不需要再计算z_L
                     if not ((_H_step == self.config.H_cycles - 1) and (_L_step == self.config.L_cycles - 1)):
                         z_L = self.L_level(z_L, z_H + input_embeddings, **seq_info)
                 # 如果当前不是最后一个 H_step，就更新 z_H
@@ -213,12 +217,20 @@ class HierarchicalReasoningModel_ACTV1_Inner(nn.Module):
 
         # LM Outputs
         new_carry = HierarchicalReasoningModel_ACTV1InnerCarry(z_H=z_H.detach(), z_L=z_L.detach())  # New carry no grad
-        output = self.lm_head(z_H)[:, self.puzzle_emb_len:]
+
+        # LM logits: shift out puzzle embedding positions
+        logits = self.lm_head(z_H)[:, self.puzzle_emb_len:]  # [B, seq_len, vocab]
+
+        # ---- compute last hidden ----
+        batch_size = batch["inputs"].shape[0]
+        lengths = (batch["inputs"] != 0).sum(dim=1) - 1  # assume pad id == 0
+        last_idx = lengths + self.puzzle_emb_len
+        last_hidden = z_H[torch.arange(batch_size, device=z_H.device), last_idx]  # [B, hidden_size]
 
         # Q head
-        q_logits = self.q_head(z_H[:, 0]).to(torch.float32)
+        q_logits = self.q_head(z_H[:, 0]).to(torch.float32)  # [B, 2]
         
-        return new_carry, output, (q_logits[..., 0], q_logits[..., 1])
+        return new_carry, logits, (q_logits[..., 0], q_logits[..., 1]), last_hidden
 
 
 class HierarchicalReasoningModel_ACTV1(nn.Module):
@@ -228,6 +240,15 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
         super().__init__()
         self.config = HierarchicalReasoningModel_ACTV1Config(**config_dict)
         self.inner = HierarchicalReasoningModel_ACTV1_Inner(self.config)
+
+        # 添加回归头
+        self.regression_head = nn.Sequential(
+            nn.Linear(self.config.hidden_size, self.config.hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(self.config.hidden_size // 2, 1)
+        )
+         # 将回归头参数 cast 到 forward dtype（例如 bfloat16）以匹配 model 内部计算
+        self.regression_head = self.regression_head.to(getattr(torch, self.config.forward_dtype))
 
     @property
     def puzzle_emb(self):
@@ -254,12 +275,16 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
         new_current_data = {k: torch.where(carry.halted.view((-1, ) + (1, ) * (batch[k].ndim - 1)), batch[k], v) for k, v in carry.current_data.items()}
 
         # Forward inner model
-        new_inner_carry, logits, (q_halt_logits, q_continue_logits) = self.inner(new_inner_carry, new_current_data)
+        new_inner_carry, logits, (q_halt_logits, q_continue_logits), last_hidden = self.inner(new_inner_carry, new_current_data)
+
+        # Regression prediction from last_hidden
+        prediction = self.regression_head(last_hidden).squeeze(-1)  # [B]
 
         outputs = {
             "logits": logits,
             "q_halt_logits": q_halt_logits,
-            "q_continue_logits": q_continue_logits
+            "q_continue_logits": q_continue_logits,
+            "prediction": prediction,
         }
         
         with torch.no_grad():
@@ -284,8 +309,11 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
                 # NOTE: No replay buffer and target networks for computing target Q-value.
                 # As batch_size is large, there're many parallel envs.
                 # Similar concept as PQN https://arxiv.org/abs/2407.04811
-                next_q_halt_logits, next_q_continue_logits = self.inner(new_inner_carry, new_current_data)[-1]
-                
+                # inner(...) now returns 4 items: (new_carry, logits, (q_halt, q_continue), last_hidden)
+                next_inner_outs = self.inner(new_inner_carry, new_current_data)
+                # pull the (q_halt, q_continue) tuple which is at index 2
+                next_q_halt_logits, next_q_continue_logits = next_inner_outs[2]
+
                 outputs["target_q_continue"] = torch.sigmoid(torch.where(is_last_step, next_q_halt_logits, torch.maximum(next_q_halt_logits, next_q_continue_logits)))
 
         return HierarchicalReasoningModel_ACTV1Carry(new_inner_carry, new_steps, halted, new_current_data), outputs

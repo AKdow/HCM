@@ -108,62 +108,48 @@ def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size:
 def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, world_size: int):
     model_cfg = dict(
         **config.arch.__pydantic_extra__,  # type: ignore
-
         batch_size=config.global_batch_size // world_size,
-
         vocab_size=train_metadata.vocab_size,
         seq_len=train_metadata.seq_len,
         num_puzzle_identifiers=train_metadata.num_puzzle_identifiers,
-        causal=False  # Non-autoregressive
+        causal=False
     )
 
-    # Instantiate model with loss head
     model_cls = load_model_class(config.arch.name)
     loss_head_cls = load_model_class(config.arch.loss.name)
 
     with torch.device("cuda"):
-        model: nn.Module = model_cls(model_cfg)
-        model = loss_head_cls(model, **config.arch.loss.__pydantic_extra__)  # type: ignore
+        # Step 1: 创建模型（保持默认 dtype，例如 fp16）
+        raw_model = model_cls(model_cfg)
 
-        # embedding对齐
-        model.resize_token_embeddings(model_cfg["vocab_size"]) # type: ignore
-        print(f"[Debug] Resized token embeddings to {model_cfg['vocab_size']}") # type: ignore
+        # Step 2: 包装 loss heads
+        model = loss_head_cls(raw_model, **config.arch.loss.__pydantic_extra__)
 
+        # 可选：编译
         if "DISABLE_COMPILE" not in os.environ:
-            model = torch.compile(model, dynamic=False)  # type: ignore
+            model = torch.compile(model, dynamic=False)
 
-        # Broadcast parameters from rank 0
+        # 多机同步
         if world_size > 1:
             with torch.no_grad():
-                for param in list(model.parameters()) + list(model.buffers()):
+                for param in list(model.parameters()) + list(model.buffers()):  # type: ignore
                     dist.broadcast(param, src=0)
-                    
+
     print("DEBUG AdamAtan2 LR:", config.lr, config.puzzle_emb_lr)
-    # Optimizers and lr
+
     optimizers = [
-        # CastedSparseEmbeddingSignSGD_Distributed(
-        #     model.model.puzzle_emb.buffers(),  # type: ignore
-            
-        #     lr=1e-8,  # Needs to be set by scheduler  ############
-        #     weight_decay=config.puzzle_emb_weight_decay,
-
-        #     world_size=world_size
-        # ),
-        
         AdamAtan2(
-            model.parameters(),
-
-            lr=1e-8,  # Needs to be set by scheduler
+            model.parameters(),  # type: ignore
+            lr=1e-8,
             weight_decay=config.weight_decay,
             betas=(config.beta1, config.beta2)
         )
     ]
-    optimizer_lrs = [
-        config.puzzle_emb_lr,
-        config.lr
-    ]
+    optimizer_lrs = [config.lr]
 
     return model, optimizers, optimizer_lrs
+
+
 
 
 def cosine_schedule_with_warmup_lr_lambda(
@@ -187,7 +173,7 @@ def init_train_state(config: PretrainConfig, train_metadata: PuzzleDatasetMetada
         step=0,
         total_steps=total_steps,
 
-        model=model,
+        model=model,  # type: ignore
         optimizers=optimizers,
         optimizer_lrs=optimizer_lrs,
         carry=None
@@ -259,7 +245,8 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
 
         metric_keys = list(sorted(metrics.keys()))  # Sort keys to guarantee all processes use the same order.
         # Reduce and reconstruct
-        metric_values = torch.stack([metrics[k] for k in metric_keys])
+        device = next(train_state.model.parameters()).device  # 模型所在 device
+        metric_values = torch.stack([metrics[k].to(device) for k in metric_keys])
         if world_size > 1:
             dist.reduce(metric_values, dst=0)
 
@@ -314,8 +301,10 @@ def evaluate(config: PretrainConfig, train_state: TrainState, eval_loader: torch
             if metric_values is None:
                 metric_keys = list(sorted(metrics.keys()))  # Sort keys to guarantee all processes use the same order.
                 metric_values = torch.zeros((len(set_ids), len(metrics.values())), dtype=torch.float32, device="cuda")
-                
-            metric_values[set_id] += torch.stack([metrics[k] for k in metric_keys])
+            
+            # 确保所有 metrics[k] 在同一个 device
+            device = metric_values.device
+            metric_values[set_id] += torch.stack([metrics[k].to(device) for k in metric_keys])
             metric_global_batch_size[set_id] += global_batch_size
 
         if len(all_preds) and config.checkpoint_path is not None:

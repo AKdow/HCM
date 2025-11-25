@@ -76,7 +76,7 @@ class HFMathTokenizer(PreTrainedTokenizer):
     def vocab_size(self):
         return len(self.vocab)
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> List[str]:  # type: ignore
         """将文本切分为 token 字符串列表（HF 要求）"""
         tokens = []
         i = 0
@@ -94,7 +94,7 @@ class HFMathTokenizer(PreTrainedTokenizer):
         return tokens
 
     def _convert_token_to_id(self, token: str) -> int:
-        return self.token_to_id.get(token, self.unk_token_id)
+        return self.token_to_id.get(token, self.unk_token_id)  # type: ignore
 
     def _convert_id_to_token(self, index: int) -> str:
         return self.id_to_token.get(index, self.unk_token)
@@ -112,7 +112,7 @@ class HFMathTokenizer(PreTrainedTokenizer):
             json.dump(self.token_to_id, f, ensure_ascii=False, indent=2)
         return (vocab_file,)
 
-    def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None):
+    def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None): # type: ignore
         """添加 BOS/EOS"""
         if self.bos_token_id is not None:
             token_ids_0 = [self.bos_token_id] + token_ids_0
@@ -120,7 +120,7 @@ class HFMathTokenizer(PreTrainedTokenizer):
             token_ids_0 = token_ids_0 + [self.eos_token_id]
         return token_ids_0
 
-    def get_special_tokens_mask(self, token_ids_0, token_ids_1=None, already_has_special_tokens=False):
+    def get_special_tokens_mask(self, token_ids_0, token_ids_1=None, already_has_special_tokens=False):  # type: ignore
         """用于 HF 内部，标记 special tokens 位置"""
         if already_has_special_tokens:
             return super().get_special_tokens_mask(
