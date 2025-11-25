@@ -4,6 +4,9 @@
 /dataset/tmp_math_test/
 /flash_attn_whl/
 /flash-attention/
+/assets/
+/LICENSE
+/README.md
 
 # WandB
 /wandb/
