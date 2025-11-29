@@ -57,6 +57,8 @@ class HierarchicalReasoningModel_ACTV1Config(BaseModel):
 
     forward_dtype: str = "bfloat16"
 
+    pad_id: int = 0
+
 
 class HierarchicalReasoningModel_ACTV1Block(nn.Module):
     def __init__(self, config: HierarchicalReasoningModel_ACTV1Config) -> None:
@@ -222,10 +224,26 @@ class HierarchicalReasoningModel_ACTV1_Inner(nn.Module):
         logits = self.lm_head(z_H)[:, self.puzzle_emb_len:]  # [B, seq_len, vocab]
 
         # ---- compute last hidden ----
+        # ---- compute last hidden ----
         batch_size = batch["inputs"].shape[0]
-        lengths = (batch["inputs"] != 0).sum(dim=1) - 1  # assume pad id == 0
+
+        # 1. 计算每个序列最后一个 token 的 index（排除 pad=0）
+        lengths = (batch["inputs"] != self.config.pad_id).sum(dim=1) - 1  
         last_idx = lengths + self.puzzle_emb_len
-        last_hidden = z_H[torch.arange(batch_size, device=z_H.device), last_idx]  # [B, hidden_size]
+
+        # 2. 取出 last hidden
+        last_hidden = z_H[torch.arange(batch_size, device=z_H.device), last_idx]
+
+        # # 3. ★★★★★ 调试打印 ★★★★★
+        # if torch.rand(1).item() < 0.02:   # 只打印 2% 的 batch，避免刷屏
+        #     print("\n[DEBUG] Last-token inspection:")
+        #     print("input row[0]:", batch["inputs"][0].tolist())
+        #     print("lengths:", lengths[:4].tolist())
+        #     print("last_idx:", last_idx[:4].tolist())
+
+        #     tok = batch["inputs"][torch.arange(batch_size), lengths]
+        #     print("last tokens:", tok[:4].tolist())
+
 
         # Q head
         q_logits = self.q_head(z_H[:, 0]).to(torch.float32)  # [B, 2]
@@ -247,8 +265,15 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
             nn.ReLU(),
             nn.Linear(self.config.hidden_size // 2, 1)
         )
-         # 将回归头参数 cast 到 forward dtype（例如 bfloat16）以匹配 model 内部计算
-        self.regression_head = self.regression_head.to(getattr(torch, self.config.forward_dtype))
+
+        # 强化初始化，让回归头不 collapse
+        for m in self.regression_head:
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, a=0.01)
+                nn.init.zeros_(m.bias)
+
+        # 保持 regression head 使用 FP32
+        self.regression_head = self.regression_head.float()
 
     @property
     def puzzle_emb(self):
@@ -278,8 +303,7 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
         new_inner_carry, logits, (q_halt_logits, q_continue_logits), last_hidden = self.inner(new_inner_carry, new_current_data)
 
         # Regression prediction from last_hidden
-        prediction = self.regression_head(last_hidden).squeeze(-1)  # [B]
-
+        prediction = self.regression_head(last_hidden.to(torch.float32)).squeeze(-1)
         outputs = {
             "logits": logits,
             "q_halt_logits": q_halt_logits,
@@ -287,6 +311,22 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
             "prediction": prediction,
         }
         
+        # ----- DEBUG regression head -----
+        # if torch.rand(1).item() < 0.02:  # 2% 的概率打印
+        #     lh = last_hidden[0][:8].detach().cpu().to(torch.float32).numpy()
+        #     pred = prediction.detach().cpu().to(torch.float32).numpy()
+
+        #     print("[DEBUG] Regression Head:")
+        #     print("  last_hidden[0][:8] =", last_hidden[0][:8].float().detach().cpu().numpy())
+        #     print("  prediction =", prediction.detach().cpu().numpy())
+        #     #print("  label =", batch["labels"][:8].detach().cpu().numpy())
+        #     # print("  prediction =", pred)
+
+        #     if "labels" in batch:
+        #         lab = batch["labels"].detach().cpu().to(torch.float32).numpy()
+        #         print("  label =", lab)
+        #     print("-" * 60)
+
         with torch.no_grad():
             # Step
             new_steps = new_steps + 1

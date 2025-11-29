@@ -112,7 +112,8 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
         vocab_size=train_metadata.vocab_size,
         seq_len=train_metadata.seq_len,
         num_puzzle_identifiers=train_metadata.num_puzzle_identifiers,
-        causal=False
+        causal=False,
+        pad_id=train_metadata.pad_id
     )
 
     model_cls = load_model_class(config.arch.name)

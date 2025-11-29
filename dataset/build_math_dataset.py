@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# build_math_dataset.py
 
 import sys
 import os
@@ -9,9 +8,9 @@ import os
 target_dir = os.path.abspath(os.path.join(os.getcwd(), ".."))
 sys.path.append(target_dir)  # 将 HRM-main 目录添加到Python路径
 
-# 验证是否添加成功（可选）
-print("已添加到路径的目录：", target_dir)
-print("当前Python路径包含：", target_dir in sys.path)  # 应输出 True
+# # 验证是否添加成功（可选）
+# print("已添加到路径的目录：", target_dir)
+# print("当前Python路径包含：", target_dir in sys.path)  # 应输出 True
 
 """
 build_math_dataset.py
@@ -20,8 +19,8 @@ build_math_dataset.py
   labels = [-100]*len(context+"=") + completion
 
 保存结构：
-  <output_dir>/<set_name>/all__inputs.npy
-  <output_dir>/<set_name>/all__labels.npy
+  <output_dir>/<set_name>/<set_name>__inputs.npy
+  <output_dir>/<set_name>/<set_name>__labels.npy
   <output_dir>/<set_name>/dataset.json
 同时在 output_dir/saved_hf_tokenizer 保存 tokenizer（train 集时）。
 """
@@ -48,7 +47,7 @@ cli = ArgParser()
 
 class DataProcessConfig(BaseModel):
     source_dir: str = "../data/MATH-401/corpus/random/addition"
-    output_dir: str = "../data/MATH-401/exp6"
+    output_dir: str = "../data/MATH-401/exp7"
     max_seq_len: int = 64
     subsample_size: Optional[int] = None
     train_file: str = "2_digit_additions.txt"
@@ -181,7 +180,7 @@ def convert_math_subset(set_name: str, config: DataProcessConfig):
 
     # save np arrays
     for k, v in results.items():
-        np.save(os.path.join(save_dir, f"all__{k}.npy"), v)
+        np.save(os.path.join(save_dir, f"{set_name}__{k}.npy"), v)
 
     # save tokenizer for train
     if set_name == "train":

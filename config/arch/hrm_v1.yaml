@@ -2,14 +2,9 @@ name: hrm.hrm_act_v1@HierarchicalReasoningModel_ACTV1
 
 loss:
   name: heads@RegressionLossHead       
-  # losses:                            
-  #   - name: MSELossHead                # 新增：给回归头 prediction 用
-      # key: prediction                  # 使用模型输出中的 prediction 字段
-      # target_key: targets              # batch 中真实连续值的 key，比如 batch['targets']
-      # reduction: mean                  # 默认即可
 
 halt_exploration_prob: 0.1
-halt_max_steps: 1
+halt_max_steps: 5
 
 H_cycles: 1
 L_cycles: 1
@@ -17,7 +12,7 @@ L_cycles: 1
 H_layers: 4
 L_layers: 4
 
-hidden_size: 512
+hidden_size: 1024
 num_heads: 8
 expansion: 4
 
